@@ -67,11 +67,12 @@
 </head>
   <body>
     <main>
-      <div contenteditable="true"></div>
+      <div contenteditable="plaintext-only" spellcheck="false"></div>
     </main>
   </body>
   <script>
 function updateMemo(e) {
+  sanitizeToPlainText();
   let range = document.createRange();
   let sel = window.getSelection();
   range.selectNodeContents(e);
@@ -88,6 +89,19 @@ div.innerText = localStorage.getItem('memo') ?? "";
 updateMemo(div);
 
 let saveTimer = null;
+let isSanitizing = false;
+function sanitizeToPlainText() {
+  if (isSanitizing) {
+    return;
+  }
+  const plain = div.innerText ?? '';
+  if (div.innerHTML !== plain) {
+    isSanitizing = true;
+    div.textContent = plain;
+    isSanitizing = false;
+  }
+}
+
 function persistMemoNow() {
   if (saveTimer) {
     clearTimeout(saveTimer);
@@ -163,9 +177,9 @@ div.addEventListener('paste', function(e) {
 });
 
 div.addEventListener('beforeinput', function(e) {
-  if (e.inputType === 'insertFromPaste' && e.dataTransfer) {
+  if (e.inputType === 'insertFromPaste') {
     e.preventDefault();
-    const text = e.dataTransfer.getData('text/plain');
+    const text = e.dataTransfer?.getData('text/plain') ?? e.data ?? '';
     insertPlainText(text);
   }
 });
@@ -179,6 +193,14 @@ div.addEventListener('drop', function(e) {
   moveCaretToPoint(e.clientX, e.clientY);
   const text = e.dataTransfer?.getData('text/plain') ?? '';
   insertPlainText(text);
+});
+
+new MutationObserver(function() {
+  sanitizeToPlainText();
+}).observe(div, {
+  childList: true,
+  subtree: true,
+  characterData: true
 });
 
 window.addEventListener('resize', function() {
@@ -197,7 +219,7 @@ document.addEventListener('visibilitychange', function() {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
-    navigator.serviceWorker.register('service-worker.js').catch(function() {});
+    navigator.serviceWorker.register('sw.js').catch(function() {});
   });
 }
   </script>
