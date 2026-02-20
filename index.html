@@ -3,8 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="description" content="Write memos">
-    <meta name="keywords" content="MemoPad">
-    <link rel="icon" type="image/png" href="favicon.png" />
+    <meta name="keywords" content="Memo, Notes, Writing">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Memo">
+    <meta property="og:description" content="Write memos">
+    <meta property="og:image" content="icon.png">
+    <meta name="theme-color" content="#22222A">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon.png">
+    <link rel="icon" type="image/png" href="icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
       html, body {
@@ -18,57 +25,180 @@
       }
 
       main {
-        display: table;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         width: 100%;
         height: 100%;
+        padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+        box-sizing: border-box;
       }
 
       div {
         background-color: #22222A;
         color: white;
-        font-size: 120px;
+        font-size: clamp(32px, 14vw, 120px);
         font-family: monospace;
         text-align: center;
-        display: table-cell; 
-        vertical-align: middle;
-        caret-color: transparent;
+        width: 100%;
+        max-width: 960px;
+        max-height: 100%;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        line-height: 1.15;
+        caret-color: currentColor;
         word-wrap: break-word;
         overflow-wrap: break-word;
+        outline: none;
+      }
+
+      div::-webkit-scrollbar {
+        display: none;
+      }
+
+      @media (max-width: 700px) {
+        div {
+          line-height: 1.2;
+        }
       }
       </style>
-    <title>MemoPad</title>
+    <title>Memo</title>
 </head>
   <body>
     <main>
       <div contenteditable="true"></div>
-    </div>
+    </main>
   </body>
   <script>
-function o(e) {
+function updateMemo(e) {
   let range = document.createRange();
   let sel = window.getSelection();
   range.selectNodeContents(e);
   range.collapse(false);
   sel.removeAllRanges();
   sel.addRange(range);
-  div.style.fontSize = `${Math.max(50, 120 - Math.sqrt(div.innerText.length*50))}px`;
-  localStorage.setItem('memo', div.innerText);
+  const minSize = window.innerWidth < 700 ? 28 : 50;
+  const maxSize = Math.min(120, Math.max(72, window.innerWidth * 0.2));
+  div.style.fontSize = `${Math.max(minSize, maxSize - Math.sqrt(div.innerText.length * 50))}px`;
+  queueMemoSave();
 }
 var div = document.getElementsByTagName('div')[0];
 div.innerText = localStorage.getItem('memo') ?? "";
-o(div);
+updateMemo(div);
+
+let saveTimer = null;
+function persistMemoNow() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  localStorage.setItem('memo', div.innerText);
+}
+
+function queueMemoSave() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+  }
+  saveTimer = setTimeout(function() {
+    persistMemoNow();
+  }, 150);
+}
 
 div.addEventListener('input', function() {
-  o(this);
+  updateMemo(this);
 });
 div.addEventListener('click', function() {
-  o(this);
+  updateMemo(this);
 });
 div.addEventListener('keydown', function(e) {
   if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
     e.preventDefault();
   }
-  o(this);
+  updateMemo(this);
 });
+
+function insertPlainText(text) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) {
+    return;
+  }
+  selection.deleteFromDocument();
+  selection.getRangeAt(0).insertNode(document.createTextNode(text));
+  selection.collapseToEnd();
+  updateMemo(div);
+}
+
+function moveCaretToPoint(x, y) {
+  const selection = window.getSelection();
+  if (!selection) {
+    return;
+  }
+
+  if (document.caretPositionFromPoint) {
+    const pos = document.caretPositionFromPoint(x, y);
+    if (pos) {
+      const range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return;
+    }
+  }
+
+  if (document.caretRangeFromPoint) {
+    const range = document.caretRangeFromPoint(x, y);
+    if (range) {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+}
+
+div.addEventListener('paste', function(e) {
+  e.preventDefault();
+  const text = e.clipboardData?.getData('text/plain') ?? '';
+  insertPlainText(text);
+});
+
+div.addEventListener('beforeinput', function(e) {
+  if (e.inputType === 'insertFromPaste' && e.dataTransfer) {
+    e.preventDefault();
+    const text = e.dataTransfer.getData('text/plain');
+    insertPlainText(text);
+  }
+});
+
+div.addEventListener('dragover', function(e) {
+  e.preventDefault();
+});
+
+div.addEventListener('drop', function(e) {
+  e.preventDefault();
+  moveCaretToPoint(e.clientX, e.clientY);
+  const text = e.dataTransfer?.getData('text/plain') ?? '';
+  insertPlainText(text);
+});
+
+window.addEventListener('resize', function() {
+  updateMemo(div);
+});
+
+window.addEventListener('pagehide', function() {
+  persistMemoNow();
+});
+
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden') {
+    persistMemoNow();
+  }
+});
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('service-worker.js').catch(function() {});
+  });
+}
   </script>
 </html>
